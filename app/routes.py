@@ -1,20 +1,22 @@
 import codecs
+import logging
 import sys
 import time
+import shutil
 
-import numpy as np
 from flask import render_template, flash
 from mpi4py import MPI
 
 from app import app
 from app.errors import ParameterRequiredException
 from app.forms import RequestForm
-import logging
 
 # logging.basicConfig(filename=f'cache/loggs/91_loggs.log', filemode='w', level=logging.INFO)
 
 
 ALG_PATH = "app\load_balancing\mpi_start_point.py"
+PARAMETERS = "parameters"
+ALGORITHM = "alg"
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -51,8 +53,30 @@ def on_submit(form):
 
 
 def run_algorithms(data):
-    pass
+    for algorithm in data['algs']:
+        parameters = {
+            key.split("_", 1)[-1]: value for key, value in data.items() if key.startswith(algorithm)
+
+        }
+
+        set_up_subprocesses(algorithm, parameters)
+
+
+
+
+def set_up_subprocesses(algorithm, parameters):
+    logging.info("Launching workers")
+    ch_comm = MPI.COMM_SELF.Spawn(sys.executable, args=[ALG_PATH], maxprocs=2)
+
+    logging.info("Passing info")
+    input_info = {ALGORITHM: algorithm, PARAMETERS: parameters}
+    ch_comm.bcast(input_info, root=MPI.ROOT)
+
+    logging.info("Closing subprocesses")
+    ch_comm.Disconnect()
+    time.sleep(0.25)
 
 
 if __name__ == "__main__":
+    comm = MPI.Comm.Get_parent()
     app.run(debug=False)
