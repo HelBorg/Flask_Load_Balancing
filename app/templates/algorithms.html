@@ -1,0 +1,71 @@
+{% extends "template.html" %}
+{% import 'bootstrap/wtf.html' as wtf %}
+{% from "_macros.html" import render_field_with_errors, render_field %}
+
+{% block header %}
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.6/d3.min.js"></script>
+{% endblock %}
+
+{% block app_content %}
+    <div class="row">
+        <div class="col-sm-3 col-md-6 col-lg-3 class-padding">
+            <h1>Input Form</h1>
+            <form action="" method="post" class="form" role="form">
+                {{ form.csrf_token }}
+
+                {{ wtf.form_field(form.num) }}
+
+                <div class="card mb-4">
+                    <div class="card-header">
+                        {{ form.label }}
+                    </div>
+                    <div class="card-body">
+                        {{ render_field_with_errors(form.algs, ri="multicheckbox") }}
+                    </div>
+                </div>
+
+                <ul class="nav nav-tabs">
+                    {% for choice in form.algorithms %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if loop.index == 1 %} active {% endif %}" data-toggle="pill"
+                               href="#{{ choice }}">{{ choice }}</a>
+                        </li>
+                    {% endfor %}
+                </ul>
+                <div class="tab-content">
+                    {% for choice in form.algorithms %}
+                        <div class="tab-pane fade in {% if loop.index == 1 %} active {% endif %}" id="{{ choice }}">
+                            {% for param in form.algo_parameters[choice] %}
+                                {{ wtf.form_field(form[choice + "_" + param]) }}
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                {{ wtf.form_field(form.submit) }}
+            </form>
+        </div>
+
+        <div class="col-sm-9 col-md-6 col-lg-8 class-padding pull-right">
+            <ul class="nav nav-tabs">
+                {% set names = ["LVP_Dynamic", "ALVP_Dynamic", "Error_comparison"] %}
+                {% for plot in plots %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if loop.index == 1 %} active {% endif %}" data-toggle="pill"
+                           href="#{{ names[loop.index - 1] }}">{{ names[loop.index - 1] }}</a>
+                    </li>
+                {% endfor %}
+            </ul>
+            <div class="tab-content">
+                {% for plot in plots %}
+                    <div class="tab-pane fade in {% if loop.index == 1 %} active {% endif %}"
+                         id="{{ names[loop.index - 1] }}">
+                        {{ plot | safe }}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
