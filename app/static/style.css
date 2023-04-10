@@ -1,0 +1,38 @@
+.glyphicon-center {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+
+    font-size: 30px;
+
+    color: black !important;
+}
+
+.carousel-control {
+    background: none !important
+}
+
+.carousel-control.left .glyphicon {
+    left: -30px;
+    margin-left: 0px;
+
+}
+
+.carousel-control.right .glyphicon {
+    right: -50px;
+    margin-right: 0px;
+}
+
+.wrap-content {
+    width: auto;
+    border: 1px solid;
+}
+
+.class-padding {
+    margin: 20px;
+    padding: 20px;
+}
+
+.pull-right {
+  float: right !important;
+}
