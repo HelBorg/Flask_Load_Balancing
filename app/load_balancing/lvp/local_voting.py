@@ -98,9 +98,8 @@ class AgentLB(Agent):
             to_send[key] = send
         # logging.warning(f"Left \n{self.queue}")
 
-        if len(to_send):
-            self.neighbors_exchange(to_send, dict_neigh=True)
-            self.queue = self.queue.reset_index(drop=True).sort_values("time")
+        self.neighbors_exchange(to_send if to_send else 0, dict_neigh=True)
+        self.queue = self.queue.reset_index(drop=True).sort_values("time")
 
     def receive_tasks(self, x):
         """

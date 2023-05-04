@@ -29,10 +29,22 @@
 }
 
 .class-padding {
-    margin: 20px;
-    padding: 20px;
+    margin: 30px;
+    padding: 0px;
 }
 
 .pull-right {
   float: right !important;
+}
+
+.is-hidden {
+    display: none;
+}
+
+.disabled {
+    pointer-events: none
+}
+
+.margin-down {
+    margin-top: 50px
 }

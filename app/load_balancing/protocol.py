@@ -8,19 +8,19 @@ from mpi4py import MPI
 from lvp.local_voting import LocalVoting, AgentLB, AcceleratedLocalVoting
 
 
-def create_agent(connections, logging=False):
+def create_agent(connections, num_steps=100, is_logging=False):
     comm = MPI.COMM_WORLD
     nproc = comm.Get_size()
     local_rank = comm.Get_rank()
+    logging.info(f"Agent {local_rank} is being created")
 
-    if logging:
-        id = int(datetime.datetime.now().timestamp())
+    if is_logging:
         logging.basicConfig(filename=f'cache/loggs/_loggs_{local_rank}.log', filemode='w', level=logging.INFO)
 
     W = connections / 2
     np.random.seed()
 
-    queue = generate_queue(local_rank)
+    queue = generate_queue(local_rank, num_steps=num_steps)
 
     # create local agent
     agent = AgentLB(queue=queue,
@@ -57,18 +57,19 @@ def acc_local_voting(agent, parameters, num_iterations=100):
     return sequence, algorithm
 
 
-def generate_queue(local_rank, generate=True):
+def generate_queue(local_rank, num_steps, generate=True):
     if generate:
-        queue_raw = np.random.randint(0, 100, size=(20, 2))
-        add = [[0, np.random.randint(100)] for i in range(10)]
+        size = np.random.poisson(lam=num_steps//2, size=1)[0] + 1
+        if local_rank == 5:
+            size = 100
+        queue_raw = [[np.random.randint(num_steps), np.random.poisson(10)] for i in range(size)]
+        add = [[0, np.random.poisson(lam=local_rank*10 + 1, size=1)[0]] for i in range(size)]
         queue_raw = np.append(queue_raw, add, axis=0)
-
         queue = pd.DataFrame(queue_raw, columns=["time", "complexity"])
         queue.to_csv(f"cache/agent_{local_rank}_queue.csv", index=False)
     else:
         queue = pd.read_csv(f"cache/agent_{local_rank}_queue.csv")
     return queue
-
 
 if __name__ == "__main__":
     comm = MPI.COMM_WORLD
@@ -80,10 +81,10 @@ if __name__ == "__main__":
 
     # Generate a common graph (everyone use the same seed)
     Adj = np.zeros((nproc, nproc))
-    for i in range(5):
-        Adj[i, [(i + 2) % 5, (i + 3) % 5]] = 1
+    for i in range(nproc):
+        Adj[i, [(i + 2) % nproc, (i + 3) % nproc]] = 1
 
-    agents = create_agent(Adj, logging=True)
+    agents = create_agent(Adj, is_logging=True)
     sequence, algorithm = local_voting(agents, {"h": 0.2})
 
     # parameters = {
