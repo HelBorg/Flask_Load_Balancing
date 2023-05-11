@@ -11,16 +11,16 @@ logging.basicConfig(filename=f'cache/loggs/main_loggs.log', filemode='w', level=
 
 app = Flask(__name__)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
-ui = FlaskUI(app, browser_path="C:\Program Files\Google\Chrome\Application\chrome.exe", port=5000, width=500, height=500)
 
 app.config.from_object(Config)
 bootstrap = Bootstrap(app)
+ui = FlaskUI(app, browser_path="C:\Program Files\Google\Chrome\Application\chrome.exe", port=5000, width=500, height=500)
 
 
-from app import routes, forms, services, errors
+from appfc import routes, forms, services, errors
 
 
 if __name__ == "__main__":
     comm = MPI.Comm.Get_parent()
-    # app.run(debug=False)
+    # app.run()
     ui.run()

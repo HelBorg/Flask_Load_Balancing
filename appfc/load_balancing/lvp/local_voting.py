@@ -143,11 +143,18 @@ class AgentLB(Agent):
 
 class LocalVoting(Consensus):
 
-    def __init__(self, gamma, agent: AgentLB, initial_condition: np.ndarray, enable_log: bool = False):
+    def __init__(
+            self,
+            gamma,
+            agent: AgentLB,
+            initial_condition: np.ndarray,
+            noise_function,
+            enable_log: bool = False):
         super(LocalVoting, self).__init__(agent=agent,
                                           initial_condition=initial_condition,
                                           enable_log=enable_log)
         self.gamma = gamma
+        self.noise_function = noise_function
 
     def iterate_run(self, step, **kwargs):
         """Run a single iterate of the algorithm
@@ -156,7 +163,7 @@ class LocalVoting(Consensus):
         data = self.agent.neighbors_exchange(self.x)
 
         for neigh in data:
-            self.x_neigh[neigh] = data[neigh]
+            self.x_neigh[neigh] = data[neigh] + self.noise_function(step)
 
         x_avg = self.x - self.gamma * sum([(self.x - self.x_neigh[i]) for i in self.agent.in_neighbors])
         # logging.warning(f"Step: {step} x: {self.x}, x_avg: {x_avg}")
@@ -169,17 +176,21 @@ class LocalVoting(Consensus):
             iterations: Number of iterations. Defaults to 100.
             verbose: If True print some information during the evolution of the algorithm. Defaults to False.
         """
-        # logging.warning(f"Agent:{self.agent.id}")
+        print(f"Agent:{self.agent.id} {self.agent.get_queue_length(0)}")
         if not isinstance(iterations, int):
             raise TypeError("iterations must be an int")
         if self.enable_log:
-            dims = [iterations]
+            dims = [iterations + 1]
             for dim in self.x.shape:
                 dims.append(dim)
             self.sequence = np.zeros(dims)
 
         for k in range(iterations):
             self.x = self.agent.get_queue_length(k)
+
+            if self.enable_log:
+                self.sequence[k] = self.x
+
             # logging.warning(f"Step: {k}, x = {self.x}")
             if k == 0:
                 print(f"Agent {self.agent.id}: x = {self.x}")
@@ -191,10 +202,9 @@ class LocalVoting(Consensus):
 
             self.iterate_run(k, **kwargs)
 
-            if self.enable_log:
-                self.x = self.agent.get_queue_length(k)
-                self.sequence[k] = self.x
-
+        if self.enable_log:
+            self.x = self.agent.get_queue_length(k + 1)
+            self.sequence[k + 1] = self.x
 
         if self.enable_log:
             return self.sequence
@@ -218,6 +228,7 @@ class AcceleratedLocalVoting(LocalVoting):
                  parameters: dict,
                  agent: AgentLB,
                  initial_condition: np.ndarray,
+                 noise_function,
                  enable_log: bool = False):
         super(LocalVoting, self).__init__(agent=agent,
                                           initial_condition=initial_condition,
@@ -231,6 +242,7 @@ class AcceleratedLocalVoting(LocalVoting):
         self.gamma = parameters.get("gamma", [])
         self.alpha = parameters.get("alpha")
 
+        self.noise_function = noise_function
 
     def iterate_run(self, step, **kwargs):
         """Run a single iterate of the algorithm
@@ -238,7 +250,7 @@ class AcceleratedLocalVoting(LocalVoting):
         data = self.agent.neighbors_exchange(self.x)
 
         for neigh in data:
-            self.x_neigh[neigh] = data[neigh]
+            self.x_neigh[neigh] = data[neigh] + self.noise_function(step)
 
         self.gamma = [self.gamma[-1]]
         self.gamma.append((1 - self.alpha) * self.gamma[0] + self.alpha * (self.mu - self.eta))
@@ -263,4 +275,3 @@ class AcceleratedLocalVoting(LocalVoting):
             logging.exception(f"Oh no: {H - self.alpha * self.alpha / (2 * self.gamma[1])}")
             print("Exception")
             raise BaseException()
-

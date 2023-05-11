@@ -8,7 +8,7 @@ from mpi4py import MPI
 from lvp.local_voting import LocalVoting, AgentLB, AcceleratedLocalVoting
 
 
-def create_agent(connections, num_steps=100, is_logging=False):
+def create_agent(connections, W, queue, is_logging=False):
     comm = MPI.COMM_WORLD
     nproc = comm.Get_size()
     local_rank = comm.Get_rank()
@@ -17,11 +17,10 @@ def create_agent(connections, num_steps=100, is_logging=False):
     if is_logging:
         logging.basicConfig(filename=f'cache/loggs/_loggs_{local_rank}.log', filemode='w', level=logging.INFO)
 
-    W = connections / 2
     np.random.seed()
 
-    queue = generate_queue(local_rank, num_steps=num_steps)
-
+    logging.info(f"Needed {connections}")
+    np.save("cache/agent_{}_sequence_lvp_conn.npy".format(local_rank), connections)
     # create local agent
     agent = AgentLB(queue=queue,
                     produc=5,
@@ -31,12 +30,13 @@ def create_agent(connections, num_steps=100, is_logging=False):
     return agent
 
 
-def local_voting(agent, parameters, num_iterations=100):
+def local_voting(agent, parameters, noise_function, num_iterations=100):
     # instantiate the consensus algorithm
     algorithm = LocalVoting(
         gamma=parameters["h"],
         agent=agent,
         initial_condition=np.array([0]),
+        noise_function=noise_function,
         enable_log=True)  # enable storing of the generated sequences
 
     # run the algorithm
@@ -44,12 +44,32 @@ def local_voting(agent, parameters, num_iterations=100):
     return sequence, algorithm
 
 
-def acc_local_voting(agent, parameters, num_iterations=100):
+def acc_local_voting(agent, parameters, noise_function, num_iterations=100):
     # instantiate the consensus algorithm
+    if "gamma" in parameters and isinstance(parameters["gamma"], float):
+        parameters["gamma"] = [parameters["gamma"]]
+
     algorithm = AcceleratedLocalVoting(
         parameters=parameters,
         agent=agent,
         initial_condition=np.array([0]),
+        noise_function=noise_function,
+        enable_log=True)  # enable storing of the generated sequences
+
+    # run the algorithm
+    sequence = algorithm.run(iterations=num_iterations, verbose=True)
+    return sequence, algorithm
+
+def acc_local_voting(agent, parameters, noise_function, num_iterations=100):
+    # instantiate the consensus algorithm
+    if "gamma" in parameters and isinstance(parameters["gamma"], float):
+        parameters["gamma"] = [parameters["gamma"]]
+
+    algorithm = AcceleratedLocalVoting(
+        parameters=parameters,
+        agent=agent,
+        initial_condition=np.array([0]),
+        noise_function=noise_function,
         enable_log=True)  # enable storing of the generated sequences
 
     # run the algorithm
@@ -87,15 +107,15 @@ if __name__ == "__main__":
     agents = create_agent(Adj, is_logging=True)
     sequence, algorithm = local_voting(agents, {"h": 0.2})
 
-    # parameters = {
-    #     "L": 3,
-    #     "mu": 1,
-    #     "h": 0.3,
-    #     "eta": 0.8,
-    #     "gamma": [0.1],
-    #     "alpha": 0.15
-    # }
-    # sequence, algorithm = acc_local_voting(agents, parameters)
+    parameters = {
+        "L": 3,
+        "mu": 1,
+        "h": 0.3,
+        "eta": 0.8,
+        "gamma": [0.1],
+        "alpha": 0.15
+    }
+    sequence, algorithm = acc_local_voting(agents, parameters)
 
     # print solution
     print("Agent {}: {}".format(local_rank, algorithm.get_result()))
