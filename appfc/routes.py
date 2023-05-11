@@ -73,13 +73,13 @@ def on_submit(form, weights):
         flash(ex.message)
         return "", "", ""
 
-    # if not os.listdir(PLOTS_PATH):
-    #     logging.info("Deleting files")
-    #     shutil.rmtree(PLOTS_PATH, ignore_errors=True)
-    #     os.mkdir(PLOTS_PATH)
+    if not os.listdir(PLOTS_PATH):
+        logging.info("Deleting files")
+        shutil.rmtree(PLOTS_PATH, ignore_errors=True)
+        os.mkdir(PLOTS_PATH)
 
     data = form.data
-    # run_algorithms(data, weights.data)
+    run_algorithms(data, weights.data)
 
     plots = {}
     for file in os.listdir(PLOTS_PATH):
