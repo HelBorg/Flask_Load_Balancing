@@ -104,7 +104,10 @@
                     {% set clazz="disabled" %}
                 {% endif %}
                 <div class="tab-pane fade in {{ clazz }} margin-down panel panel-default row-style" id="{{ matrix_label }}">
-                    <div class="panel-body">
+                    <div class="panel-body {% if form.num.data and form.num.data <= 12 %} is-hidden {% endif %}">
+                        {{ wtf.form_field(form.file_matrix) }}
+                    </div>
+                    <div class="panel-body {% if form.num.data and form.num.data > 12 %} is-hidden {% endif %}">
                             {% for row in form.matrix %}
                                 {% set row_num=loop.index0 %}
                                 <div class="row row-style" id="matrix-{{ row_num }}">

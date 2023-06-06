@@ -3,9 +3,9 @@ from wtforms import SubmitField, SelectMultipleField, widgets, FloatField, Integ
     SelectField, FormField, Form, StringField, RadioField
 from wtforms.validators import DataRequired, optional
 from wtforms.widgets import TextArea
+from flask_wtf.file import FileField
 
 from appfc.errors import ParameterRequiredException
-
 
 class MultiCheckboxField(SelectMultipleField):
     widget = widgets.ListWidget(prefix_label=False)
@@ -22,19 +22,22 @@ class FieldLizt(Form):
 class RequestForm(FlaskForm):
     ALGORITMS = ["LVP", "ALVP"]
     ALGO_PARAMETERS = {
-        "LVP": ["h"],
-        "ALVP": ["L", "h", "alpha", "gamma", "mu", "eta"]
+        "LVP": ["Step"],
+        "ALVP": ["Lipschitz constant", "Step", "Alpha constant", "Gamma constant", "Strong convexity constant", "Eta constant"]
     }
     MATRIX_GENERATION = ["Default", "Custom"]
     NOISE_GENERATION = ["None", "St. normal distr.", "Custom"]
 
     num = IntegerField('Number of agents', validators=[DataRequired()])
     steps = IntegerField('Steps', validators=[DataRequired()])
+
     matr = SelectField("Matrix Generation", choices=MATRIX_GENERATION)
     matrix = FieldList(
         FormField(FieldLizt),
         min_entries=2,
         max_entries=20)
+    file_matrix = FileField()
+
     noise = RadioField("Noise Generation", choices=NOISE_GENERATION)
     custom_noise = StringField("Custom noise function", widget=TextArea())
     algs = MultiCheckboxField("Algorithms", choices=ALGORITMS)
@@ -53,6 +56,10 @@ class RequestForm(FlaskForm):
         matrix = self.matrix
         if not matrix or not num_agents:
             return None
+
+        if num_agents > 12:
+            num_agents = 10
+
         matrix.entries = []
         for i in range(len(matrix), num_agents):
             matrix_form = FieldLizt()

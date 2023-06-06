@@ -3,7 +3,10 @@ import logging
 import numpy as np
 import pandas as pd
 from disropt.agents import Agent
-from disropt.algorithms import Consensus
+from disropt.algorithms import Consensus, ADMM
+from disropt.functions import Variable, QuadraticForm
+from disropt.problems import Problem
+from mpi4py import MPI
 from pandas import DataFrame
 
 
@@ -49,7 +52,6 @@ class AgentLB(Agent):
         :param step: number of current step
         :return:
         """
-        # logging.warning(f"x = {x}, step = {step}")
         if x == 0:
             self.neighbors_exchange(0)
             self.neighbors_exchange(0)
@@ -68,7 +70,6 @@ class AgentLB(Agent):
         """
         # get neibors who vote to receive
         neib_info = self.neighbors_exchange(0)
-        # logging.warning(f"Will send to {neib_info}")
         if len(neib_info) == 0:
             return
 
@@ -93,12 +94,16 @@ class AgentLB(Agent):
             x -= sum(queue.iloc[:num_tasks].complexity)
             send = queue.iloc[:num_tasks]
             self.queue = self.queue[~self.queue.index.isin(send.index)]
-            # logging.warning(f"Send {send} to {key} (needed {complex}), need {x}")
             # send tasks
             to_send[key] = send
-        # logging.warning(f"Left \n{self.queue}")
 
-        self.neighbors_exchange(to_send if to_send else 0, dict_neigh=True)
+        try:
+            self.neighbors_exchange(to_send if to_send else 0, dict_neigh=True)
+        except BaseException:
+            print("Oh mg exception")
+            print(f"Agent {self.id} send {to_send}")
+            print(self.agent.in_weights)
+
         self.queue = self.queue.reset_index(drop=True).sort_values("time")
 
     def receive_tasks(self, x):
@@ -109,14 +114,12 @@ class AgentLB(Agent):
         """
         self.neighbors_exchange(x)
         res = self.neighbors_exchange(0)
-        # logging.warning(f"Received res = \n{res}")
+
         for key, val in res.items():
             if not isinstance(val, pd.DataFrame):
-                # logging.error(f"Received not dataframe for {key}: {res}")
                 continue
 
             self.queue = pd.concat([self.queue.iloc[:1], val, self.queue.iloc[1:]])
-            # logging.warning(f"Need {x}, get {val} from {key} queu = \n{val}")
         self.queue = self.queue.reset_index(drop=True).sort_values("time")
 
     def execute_tasks(self, step):
@@ -125,10 +128,8 @@ class AgentLB(Agent):
         :return:
         """
         execute = self.produc
-        # logging.warning(f"Execute {execute}, queue = \n{self.queue}")
         while execute != 0:
             if self.get_queue_length(step) == 0:
-                # logging.warning(f"queue is empty could do {execute}")
                 break
 
             first_task = self.queue.iloc[0, 1]
@@ -138,22 +139,44 @@ class AgentLB(Agent):
             else:
                 execute -= first_task
                 self.queue = self.queue.iloc[1:]
-        # logging.warning(f"Executed queue {self.queue}")
+
+    def update_problem(self, step: int = 0):
+        comm = MPI.Comm.Get_parent()
+        nproc = comm.Get_size()
+        local_rank = comm.Get_rank()
+
+        queue = self.agent.get_queue_length(step)
+        neib_queue = self.neighbors_exchange(queue)
+        num_neib_tasks = queue + sum(neib_queue.values())
+        print(f"Agent {local_rank}: num_tasks min - {queue}, with neighbors - {num_neib_tasks}")
+
+        n = 1
+        # define the local objective function
+        P = np.eye(n)
+        x = Variable(n)
+        fn = QuadraticForm(x, P)
+
+        # define a (common) constraint set
+        A = np.eye(n)
+        f = A @ x - num_neib_tasks
+        constr = f == 0
+
+        # local problem
+        problem = Problem(fn, constr)
+
+        self.set_problem(problem)
 
 
-class LocalVoting(Consensus):
-
+class ConsensusLB(Consensus):
     def __init__(
             self,
-            gamma,
             agent: AgentLB,
             initial_condition: np.ndarray,
             noise_function,
             enable_log: bool = False):
-        super(LocalVoting, self).__init__(agent=agent,
+        super(ConsensusLB, self).__init__(agent=agent,
                                           initial_condition=initial_condition,
                                           enable_log=enable_log)
-        self.gamma = gamma
         self.noise_function = noise_function
 
     def iterate_run(self, step, **kwargs):
@@ -164,10 +187,17 @@ class LocalVoting(Consensus):
 
         for neigh in data:
             self.x_neigh[neigh] = data[neigh] + self.noise_function(step)
-
-        x_avg = self.x - self.gamma * sum([(self.x - self.x_neigh[i]) for i in self.agent.in_neighbors])
-        # logging.warning(f"Step: {step} x: {self.x}, x_avg: {x_avg}")
+        x_avg = self.one_step()
         self.agent.update_value(self.x, x_avg, step)
+
+    def one_step(self):
+        """
+        Implement one algorithm step calculations
+        :param step: number of current step
+        :return: average value of the queue
+        """
+        logging.info("I am here 3")
+        pass
 
     def run(self, iterations: int = 100, verbose: bool = False, **kwargs):
         """Run the algorithm for a given number of iterations
@@ -176,7 +206,7 @@ class LocalVoting(Consensus):
             iterations: Number of iterations. Defaults to 100.
             verbose: If True print some information during the evolution of the algorithm. Defaults to False.
         """
-        print(f"Agent:{self.agent.id} {self.agent.get_queue_length(0)}")
+
         if not isinstance(iterations, int):
             raise TypeError("iterations must be an int")
         if self.enable_log:
@@ -191,14 +221,8 @@ class LocalVoting(Consensus):
             if self.enable_log:
                 self.sequence[k] = self.x
 
-            # logging.warning(f"Step: {k}, x = {self.x}")
-            if k == 0:
-                print(f"Agent {self.agent.id}: x = {self.x}")
-
-            if verbose:
-                queue_1 = self.agent.get_queue(k)
-                new_queue = queue_1[queue_1.time == k]
-                # logging.warning(f"new tasks {sum(new_queue.complexity)}: \n{new_queue}")
+            if k % 25 == 0:
+                print(f"Agent {self.agent.id}: x = {self.x} step = {k}")
 
             self.iterate_run(k, **kwargs)
 
@@ -208,6 +232,25 @@ class LocalVoting(Consensus):
 
         if self.enable_log:
             return self.sequence
+
+
+class LocalVoting(ConsensusLB):
+
+    def __init__(
+            self,
+            gamma,
+            agent: AgentLB,
+            initial_condition: np.ndarray,
+            noise_function,
+            enable_log: bool = False):
+        super(LocalVoting, self).__init__(agent=agent,
+                                          initial_condition=initial_condition,
+                                          enable_log=enable_log,
+                                          noise_function=noise_function)
+        self.gamma = gamma
+
+    def one_step(self):
+        return self.x - self.gamma * sum([(self.x - self.x_neigh[i]) for i in self.agent.in_neighbors])
 
 
 class AccelerateParameters:
@@ -223,16 +266,17 @@ class AccelerateParameters:
         return self
 
 
-class AcceleratedLocalVoting(LocalVoting):
+class AcceleratedLocalVoting(ConsensusLB):
     def __init__(self,
                  parameters: dict,
                  agent: AgentLB,
                  initial_condition: np.ndarray,
                  noise_function,
                  enable_log: bool = False):
-        super(LocalVoting, self).__init__(agent=agent,
-                                          initial_condition=initial_condition,
-                                          enable_log=enable_log)
+        super(AcceleratedLocalVoting, self).__init__(agent=agent,
+                                                     initial_condition=initial_condition,
+                                                     enable_log=enable_log,
+                                                     noise_function=noise_function)
         self.nesterov_step = 0
 
         self.L = parameters.get("L")
@@ -242,36 +286,148 @@ class AcceleratedLocalVoting(LocalVoting):
         self.gamma = parameters.get("gamma", [])
         self.alpha = parameters.get("alpha")
 
-        self.noise_function = noise_function
-
-    def iterate_run(self, step, **kwargs):
-        """Run a single iterate of the algorithm
-        """
-        data = self.agent.neighbors_exchange(self.x)
-
-        for neigh in data:
-            self.x_neigh[neigh] = data[neigh] + self.noise_function(step)
-
+    def one_step(self):
         self.gamma = [self.gamma[-1]]
         self.gamma.append((1 - self.alpha) * self.gamma[0] + self.alpha * (self.mu - self.eta))
         x_n = 1 / (self.gamma[0] + self.alpha * (self.mu - self.eta)) \
               * (self.alpha * self.gamma[0] * self.nesterov_step + self.gamma[1] * self.x)
 
         y_n = sum([self.agent.in_weights[i] * (x_n - self.x_neigh[i]) for i in self.agent.in_neighbors])
-        # logging.warning(f"y_n = {y_n}, x - alpha y_n = {self.x - self.h*y_n}")
-        # logging.warning(f"x_n = {x_n} x = {self.x}")
         x_avg = x_n - self.h * y_n
 
         self.nesterov_step = 1 / self.gamma[0] * \
                              ((1 - self.alpha) * self.gamma[0] * self.nesterov_step
                               + self.alpha * (self.mu - self.eta) * x_n
                               - self.alpha * y_n)
-        # logging.warning(f"Step: {step} x: {self.x}, x_avg: {x_avg}")
-        self.agent.update_value(self.x, x_avg, step)
 
         H = self.h - self.h * self.h * self.L / 2
         if H - self.alpha * self.alpha / (2 * self.gamma[1]) < 0:
             logging.warning(H)
             logging.exception(f"Oh no: {H - self.alpha * self.alpha / (2 * self.gamma[1])}")
-            print("Exception")
+            logging.info("Exception")
             raise BaseException()
+
+        return x_avg
+
+
+class ADMM_LB(ADMM):
+    def __init__(
+            self,
+            agent: AgentLB,
+            initial_lambda: dict,
+            initial_z: np.ndarray,
+            enable_log: bool = False
+    ):
+        super(ADMM_LB, self).__init__(agent=agent,
+                                      initial_lambda=initial_lambda,
+                                      initial_z=initial_z,
+                                      enable_log=enable_log)
+        # self.noise_function = noise_function
+
+    def run(self, iterations: int = 100, penalty: float = 0.1, verbose: bool = False, **kwargs) -> np.ndarray:
+        if not isinstance(iterations, int):
+            raise TypeError("The number of iterations must be an int")
+
+        if self.enable_log:
+            # initialize sequence of x and z
+            x_dims = [iterations]
+            for dim in self.x_shape:
+                x_dims.append(dim)
+            self.x_sequence = np.zeros(x_dims)
+            self.z_sequence = np.zeros(x_dims)
+
+            # initialize sequence of lambda
+            self.lambda_sequence = {}
+            for j in self.augmented_neighbors:
+                self.lambda_sequence[j] = np.zeros(x_dims)
+
+        self.initialize_algorithm()
+
+        for k in range(iterations):
+            # store current lambda and z
+            if self.enable_log:
+                for j in self.augmented_neighbors:
+                    self.lambda_sequence[j][k] = self.lambd[j]
+                self.z_sequence[k] = self.z
+
+            self.iterate_run(rho=penalty, step=k, **kwargs)
+
+            # store primal solution
+            if self.enable_log:
+                self.x_sequence[k] = self.x
+
+            if verbose:
+                if self.agent.id == 0:
+                    print('Iteration {}'.format(k), end="\r")
+
+        if self.enable_log:
+            return (self.x_sequence, self.lambda_sequence, self.z_sequence)
+
+    def _update_local_solution(self, x: np.ndarray, z: np.ndarray, z_neigh: dict, rho: float, step: int, **kwargs):
+        """Update the local solution
+
+        Args:
+            x: current solution
+            z: current auxiliary primal variable
+            z_neigh: auxiliary primal variables of neighbors (dictionary)
+            rho: penalty parameter
+        """
+        self.z_neigh = z_neigh
+
+        # update dual variables
+        self.lambd[self.agent.id] += rho * (x - z)
+        for j, z_j in z_neigh.items():
+            self.lambd[j] += rho * (x - z_j)
+
+        # update primal variables
+        self.x = x
+        self.z = z
+        comm = MPI.COMM_WORLD
+        local_rank = comm.Get_rank()
+        if local_rank == 0:
+            print(f"X: {x}, z: {z}")
+
+    def initialize_algorithm(self):
+        """Initializes the algorithm
+        """
+        # exchange z with neighbors
+        self.z_neigh = self.agent.neighbors_exchange(self.z)
+
+    def iterate_run(self, rho: float, step: int, **kwargs):
+        """Run a single iterate of the algorithm
+        """
+
+        # build local problem
+        x_i = Variable(self.x_shape[0])
+
+        penalties = [(x_i - self.z_neigh[j]) @ (x_i - self.z_neigh[j]) for j in self.agent.in_neighbors]
+        penalties.append((x_i - self.z) @ (x_i - self.z))
+        sumlambda = sum(self.lambd.values())
+
+        obj_function = self.agent.problem.objective_function + sumlambda @ x_i + (rho / 2) * sum(penalties)
+        pb = Problem(obj_function, self.agent.problem.constraints)
+
+        # solve problem and save data
+        x = pb.solve()
+
+        # exchange primal variables and dual variables with neighbors
+        x_neigh = self.agent.neighbors_exchange(x)
+        lambda_neigh = self.agent.neighbors_exchange(self.lambd, dict_neigh=True)
+
+        # compute auxiliary variable
+        z = (sum(x_neigh.values()) + x) / (self.degree + 1) + \
+            (sum(lambda_neigh.values()) + self.lambd[self.agent.id]) / (rho * (self.degree + 1))
+
+        # exchange auxiliary variables with neighbors
+        z_neigh = self.agent.neighbors_exchange(z)
+
+        # update local data
+        self._update_local_solution(x, z, z_neigh, rho, step, **kwargs)
+
+    def get_result(self):
+        """Return the current value primal solution, dual variable and auxiliary primal variable
+
+        Returns:
+            tuple (primal, dual, auxiliary): value of primal solution (np.ndarray), dual variables (dictionary of np.ndarray), auxiliary primal variable (np.ndarray)
+        """
+        return (self.x, self.lambd, self.z)
