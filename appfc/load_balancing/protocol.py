@@ -3,9 +3,10 @@ import logging
 
 import numpy as np
 import pandas as pd
+from disropt.algorithms import ADMM
 from mpi4py import MPI
 
-from lvp.local_voting import LocalVoting, AgentLB, AcceleratedLocalVoting
+from lvp.local_voting import LocalVoting, AgentLB, AcceleratedLocalVoting, ADMM_LB
 
 
 def create_agent(connections, W, queue, is_logging=False):
@@ -28,6 +29,26 @@ def create_agent(connections, W, queue, is_logging=False):
                     out_neighbors=np.nonzero(connections[:, local_rank])[0].tolist(),
                     in_weights=W[local_rank, :].tolist())
     return agent
+
+
+def admm(agent, parameters, noise_function, num_iterations=100):
+    agent.update_problem()
+    initial_z = np.ones((nproc, 1))
+
+    initial_lambda = {j: np.ones((nproc, 1)) for j in agent.in_neighbors}
+    initial_lambda[local_rank] = np.ones((nproc, 1))
+
+    agent.update_problem()
+    algorithm = ADMM_LB(
+        agent=agent,
+        initial_condition=np.array([0]),
+        initial_z=initial_z,
+        initial_lambda=initial_lambda,
+        noise_function=noise_function,
+        enable_log=True
+    )
+    sequence = algorithm.run(iterations=num_iterations)
+    return sequence, algorithm
 
 
 def local_voting(agent, parameters, noise_function, num_iterations=100):
@@ -60,36 +81,21 @@ def acc_local_voting(agent, parameters, noise_function, num_iterations=100):
     sequence = algorithm.run(iterations=num_iterations, verbose=True)
     return sequence, algorithm
 
-def acc_local_voting(agent, parameters, noise_function, num_iterations=100):
-    # instantiate the consensus algorithm
-    if "gamma" in parameters and isinstance(parameters["gamma"], float):
-        parameters["gamma"] = [parameters["gamma"]]
-
-    algorithm = AcceleratedLocalVoting(
-        parameters=parameters,
-        agent=agent,
-        initial_condition=np.array([0]),
-        noise_function=noise_function,
-        enable_log=True)  # enable storing of the generated sequences
-
-    # run the algorithm
-    sequence = algorithm.run(iterations=num_iterations, verbose=True)
-    return sequence, algorithm
-
 
 def generate_queue(local_rank, num_steps, generate=True):
     if generate:
-        size = np.random.poisson(lam=num_steps//2, size=1)[0] + 1
+        size = np.random.poisson(lam=num_steps // 2, size=1)[0] + 1
         if local_rank == 5:
             size = 100
         queue_raw = [[np.random.randint(num_steps), np.random.poisson(10)] for i in range(size)]
-        add = [[0, np.random.poisson(lam=local_rank*10 + 1, size=1)[0]] for i in range(size)]
+        add = [[0, np.random.poisson(lam=local_rank * 10 + 1, size=1)[0]] for i in range(size)]
         queue_raw = np.append(queue_raw, add, axis=0)
         queue = pd.DataFrame(queue_raw, columns=["time", "complexity"])
         queue.to_csv(f"cache/agent_{local_rank}_queue.csv", index=False)
     else:
         queue = pd.read_csv(f"cache/agent_{local_rank}_queue.csv")
     return queue
+
 
 if __name__ == "__main__":
     comm = MPI.COMM_WORLD

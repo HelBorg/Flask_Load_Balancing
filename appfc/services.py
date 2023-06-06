@@ -11,6 +11,15 @@ ALG_PATH = "appfc/load_balancing/mpi_start_point.py"
 PARAMETERS = "parameters"
 ALGORITHM = "alg"
 
+params_names = {
+    "Step": "h",
+    "Lipschitz constant": "L",
+    "Alpha constant": "alpha",
+    "Gamma constant": "gamma",
+    "Strong convexity constant": "mu",
+    "Eta constant": "eta"
+}
+
 
 def run_algorithms(data, weights):
     num_agents = int(data["num"])
@@ -24,7 +33,7 @@ def run_algorithms(data, weights):
     }
     for ind, algorithm in enumerate(data['algs']):
         parameters_alg = {
-            key.split("_", 1)[-1]: value for key, value in data.items() if key.startswith(algorithm)
+            params_names.get(key.split("_", 1)[-1]): value for key, value in data.items() if key.startswith(algorithm)
         }
         parameters_alg.update(parameters)
         parameters_alg["gen_queue"] = ind == 0
@@ -108,5 +117,7 @@ def create_error_plot(errors):
         ),
         font=dict(size=20)
     )
+    fig.update_xaxes(showline=True, linewidth=2, linecolor='black', gridcolor='white')
+    fig.update_yaxes(showline=True, linewidth=2, linecolor='black', gridcolor='white')
 
     fig.write_html(f"appfc/templates/html_files/error_comparison.html")

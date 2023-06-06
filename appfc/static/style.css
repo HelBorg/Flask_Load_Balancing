@@ -56,3 +56,7 @@
 .no-label .control-label {
     display: none;
 }
+
+.gray-out {
+    background-color: gray;
+}
